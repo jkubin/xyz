@@ -1,0 +1,377 @@
+#!/usr/bin/perl -w
+
+# Script for xyz-gallery - a CL image web gallery processing tool
+# 2007/8/12 Josef Kubin jkubin redhat.com
+
+use strict;
+use File::stat;
+use Time::localtime;
+use Getopt::Std;
+use Image::Magick;
+use Image::ExifTool;
+
+# default value for heading
+our $opt_x = 'xyz';
+
+# maximum image size to fit square
+our $opt_m = 800;
+
+# author of images
+our $opt_n = 'Unknown';
+
+# decision, whether original images should be firstly correctly oriented
+our $opt_a = 0;
+
+die "Usage: xyz -a -x\'Heading\' -m600 (max.size) -n\'Your name\'\n" unless getopts("ax:m:n:");
+
+# thumbnail quality
+my $thq = 70;
+my $exif = new Image::ExifTool;
+
+# year for footer
+my $year = 1900 + localtime->year();
+
+# directory with description
+my $dscdir = '.comments';
+my $dsc;
+
+# auxiliary variables
+my $max;
+my %css;
+my %stat;
+my $tags;
+my %lastinfo;
+
+# read content of directory to array
+opendir DIR, ".";
+my @content = readdir DIR;
+my $test = join(" ", @content);
+closedir DIR;
+
+# test for existence of images
+if(!($test =~ /[^.].*(jpe?g|png|gif)$/i)){
+    print "image files not found ...\n";
+    exit 1;
+}
+
+# read content of directory with description
+if($test =~ /$dscdir/){
+    opendir DIR, $dscdir;
+    $dsc = join(" ", readdir DIR);
+    closedir DIR;
+}
+
+# main loop for image processing
+foreach my $img (@content){
+    if($img =~ /^[^.].*(jpe?g|png|gif)$/i){
+	my $buffer4img = new Image::Magick;
+	my $image;
+	my ($width, $height);
+
+	if($opt_a){
+	    my $info = $exif -> ImageInfo($img);
+	    if($$info{'Orientation'}){
+		my $degrees = $$info{'Orientation'};
+		$degrees =~ s/^[^\d]*//;
+		$degrees =~ s/[^\d]*$//;
+		if($degrees){
+
+		    $buffer4img -> Read($img);
+		    $buffer4img -> Rotate($degrees);
+		    $buffer4img -> Write($img);
+
+		    $exif -> SetNewValue('Orientation', 'Horizontal (normal)');
+		    $exif -> WriteInfo($img);
+		    $exif -> ClearOptions();
+		    print "$img has been rotated (EXIF updated)\n";
+		}
+	    }
+	}
+
+	if($test =~ /\.th_$img/){
+	    print ".th_$img exists; ";
+    	    ($width, $height) = ($buffer4img -> Ping('.th_'.$img))[0..1];
+	}
+	else{
+	    print "create .th_$img; ";
+
+	    if(!($buffer4img -> Get('magick'))){
+		$buffer4img -> Read($img);
+	    }
+
+	    $image = $buffer4img -> Clone();
+
+	    $image -> Thumbnail(geometry => '160x160');
+
+	    if($img =~ /jpe?g$/i){
+    		$image -> Set(quality => $thq);
+	    }
+	    else{
+		$image -> Threshold(threshold => '50000');
+	    }
+
+	    ($width, $height) = $image -> Get('width', 'height');
+	    $image -> Write('.th_'.$img);
+	    @$image = ();
+	}
+
+# create hash with statistics data of image size occurrence
+	$stat{$width."x".$height} += 1;
+
+# create hash for later text-data processing
+	$css{$img} = {
+	    'width' => $width,
+	    'height' => $height
+	};
+
+
+	if($test =~ /\.$img/){
+	    print ".$img exists";
+	}
+	else{
+	    if(!($buffer4img -> Get('magick'))){
+		$buffer4img -> Read($img);
+	    }
+
+	    if($buffer4img -> Get('width') > $opt_m || $buffer4img -> Get('height') > $opt_m){
+		print "create .$img to fit size ${opt_m}x${opt_m}";
+		$buffer4img -> Resize(geometry => $opt_m.'x'.$opt_m);
+	    }
+	    else{
+		print "copy $img to .$img";
+	    }
+
+	    $buffer4img -> Write('.'.$img);
+	}
+
+	@$buffer4img = ();
+	print "\n";
+    }
+}
+
+print "creating data for index.html ... ";
+
+# find the maximal occurence of image dimensions
+my $foo = 0;
+foreach (keys %stat){
+    if($foo < $stat{$_}){
+	$foo = $stat{$_};
+	$max = $_;
+    }
+}
+
+my ($maxwidth, $maxheight);
+
+$maxheight = $maxwidth = $max;
+$maxwidth =~ s/x.*$//;
+$maxheight =~ s/^.*x//;
+
+# loop for text/EXIF data processing
+foreach my $img (sort keys %css){
+    my $description;
+    my $comment;
+    my $exifstring = '';
+    my $info = $exif -> ImageInfo('.'.$img);
+
+    $$info{"Processed"} = ctime(stat('.'.$img)->mtime);
+
+    if($dsc && $dsc =~ /$img.xml/){
+	$_ = `gunzip < $dscdir/$img.xml`;
+
+	s/\n//g;
+	s/^.*<Note>//;
+	s/<\/Note>.*$//;
+	s/&#xC1;/Á/g;
+	s/&#xE1;/á/g;
+	s/&#x10C;/Č/g;
+	s/&#x10D;/č/g;
+	s/&#x10E;/Ď/g;
+	s/&#x10F;/ď/g;
+	s/&#xC9;/É/g;
+	s/&#xE9;/é/g;
+	s/&#x11A;/Ě/g;
+	s/&#x11B;/ě/g;
+	s/&#xCD;/Í/g;
+	s/&#xED;/í/g;
+	s/&#x147;/Ň/g;
+	s/&#x148;/ň/g;
+	s/&#xD3;/Ó/g;
+	s/&#xF3;/ó/g;
+	s/&#x158;/Ř/g;
+	s/&#x159;/ř/g;
+	s/&#x160;/Š/g;
+	s/&#x161;/š/g;
+	s/&#x164;/Ť/g;
+	s/&#x165;/ť/g;
+	s/&#xDA;/Ú/g;
+	s/&#xFA;/ú/g;
+	s/&#x16E;/Ů/g;
+	s/&#x16F;/ů/g;
+	s/&#xDD;/Ý/g;
+	s/&#xFD;/ý/g;
+	s/&#x17D;/Ž/g;
+	s/&#x17E;/ž/g;
+	s/"/'/g;
+
+	$comment = $_;
+
+	s/(.*)/title="$1" /;
+
+	$description = $_;
+    }
+    else{
+	$comment = $description = '';
+    }
+
+    ################################################################################
+    ## This is a list of EXIF keys - order matter ##################################
+    ################################################################################
+
+    foreach my $pom ("Processed","CreateDate","Flash","Make","Model","Orientation","FileSize","ExposureTime"){
+
+        if($pom eq 'FileSize'){
+	    $info->{$pom} =~ s/([Mk])B/$1iB/;
+	}
+
+	if(!$lastinfo{$pom}){
+	    $lastinfo{$pom} = "#";
+	    $exifstring .= "$pom#";
+	}
+
+	if($info->{$pom}){
+	    if($lastinfo{$pom} ne $info->{$pom}){
+		$exifstring .= $lastinfo{$pom} = $info->{$pom};
+	    }
+	}
+	elsif($lastinfo{$pom} ne '$'){
+	    $exifstring .= $lastinfo{$pom} = '$';
+	}
+
+	$exifstring .= "|";
+    }
+
+    $exifstring =~ s/\|$//;
+
+    # delete unnecessary EXIF data
+    $exif -> SetNewValue('ThumbnailImage');
+    $exif -> SetNewValue(Comment => $comment);
+    $exif -> WriteInfo('.'.$img);
+
+    ################################################################################
+    ## create XHTML content ########################################################
+    ################################################################################
+
+    $tags .= "<a href=\".$img\"><img src=\".th_$img\" alt=\"\" ";
+
+    if($css{$img}{"width"} == $maxwidth && $css{$img}{"height"} == $maxheight){
+    }
+    elsif($css{$img}{"height"} == $maxwidth && $css{$img}{"width"} == $maxheight){
+	$tags .= 'class="ud" ';
+    }
+    elsif($css{$img}{"width"} == $maxwidth){
+	$tags .= "style=\"height:".$css{$img}{"height"}."px\" ";
+    }
+    elsif($css{$img}{"height"} == $maxwidth){
+	$tags .= "class=\"ud\" style=\"width:".$css{$img}{"width"}."px\" ";
+    }
+    else{
+	$tags .= "style=\"width:".$css{$img}{"width"}."px;height:".$css{$img}{"height"}."px\" ";
+    }
+
+    $tags .= "$description/><span>$exifstring</span></a>\n";
+
+    $exifstring = '';
+}
+
+
+# if dimension of majority images differs from predefined size in css file, then redefine them
+# redefinition is a result of statistics data
+my $redefine = '';
+if($max ne "160x120"){
+    $redefine = <<End;
+<style type="text/css">
+/*<![CDATA[*/
+.ph img,.ph div {width:${maxwidth}px}
+.ph img {height:${maxheight}px}
+.ph.ud img,.ph.ud div {width:${maxheight}px}
+.ph.ud img {height:${maxwidth}px}
+/*]]>*/
+</style>
+End
+}
+
+# copy the necessary files
+if($test !~ /\.files/){
+    `mkdir .files && cp /usr/share/xyz/* .files`;
+#    `mkdir .files && ln -s /home/kb/bin/bxsrc/px/files/* .files`;
+}
+
+# create final index.html
+open(INDEX, ">", "index.html");
+
+print INDEX <<End;
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"
+	"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<title>$opt_x</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="author" content="$opt_n" />
+<meta name="description" content="$opt_x" />
+<meta http-equiv="pragma" content="no-cache" />
+<script type="text/javascript" src=".files/xyz.js"></script>
+<link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+<link rel="stylesheet" type="text/css" href=".files/xyz.css" />
+
+<link title="test 1" class="global" rel="alternate stylesheet" type="text/css" href=".files/test.css" />
+<link title="test 2" class="global" rel="alternate stylesheet" type="text/css" href=".files/test2.css" />
+
+<link title="Red panel" rel="alternate stylesheet" type="text/css" href=".files/red.css" />
+<link title="Green panel" rel="alternate stylesheet" type="text/css" href=".files/green.css" />
+<link title="Transparent panel" rel="alternate stylesheet" type="text/css" href=".files/transparent.css" />
+<link title="Skeleton panel" rel="alternate stylesheet" type="text/css" href=".files/skel.css" />
+
+$redefine
+<!--[if lte IE 6]>
+<style type="text/css">
+#wrap {width:845px}
+.ph span.count {left:auto;border:none;right:0}
+</style>
+<![endif]-->
+
+<!--[if IE 7]>
+<style type="text/css">
+.ph img {margin:0 0 -1px}
+</style>
+<![endif]-->
+
+</head>
+<body>
+<div id="wrap">
+<div id="body">
+<b class="top"><b class="x1"></b><b class="x2"></b><b class="x3"></b><b class="x4"></b></b>
+<h1>$opt_x</h1>
+<b class="bottom"><b class="x4"></b><b class="x3"></b><b class="x2"></b></b>
+<b class="top"><b class="x1"></b><b class="x2"></b><b class="x3"></b><b class="x4"></b></b>
+<div id="cont">
+
+$tags
+<div class="s"></div>
+</div>
+<b class="bottom"><b class="x4"></b><b class="x3"></b><b class="x2"></b><b class="x1"></b></b>
+</div>
+<div id="foot">
+<b class="top"><b class="x1"></b><b class="x2"></b><b class="x3"></b><b class="x4"></b></b>
+<div>$opt_n &copy; $year</div>
+<b class="bottom"><b class="x4"></b><b class="x3"></b><b class="x2"></b><b class="x1"></b></b>
+</div>
+</div>
+<script type="text/javascript">
+/*<![CDATA[*/Root.Init();//]]>
+</script>
+</body>
+</html>
+End
+
+print "done.\n";
+

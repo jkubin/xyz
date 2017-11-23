@@ -1,0 +1,55 @@
+.TH xyz-gallery 1 "JULY 2007" "xyz-gallery.0.9"
+.SH NAME
+xyz-gallery \- a web gallery image generator with embedded JavaScript viewer.
+.br
+note: Browser works even without JavaScript.
+.SH SYNOPSIS
+.B xyz
+[-a]
+[-x'Our snapshot collection']
+[-m600]
+[-n'Your name']
+.br
+.SH DESCRIPTION
+.B xyz
+started in a folder with images (gained from a digital camera) creates dot prefixed new
+smaller images, thumbnails, necessary files and
+.B index.html
+page.
+After processing the content is prepared for display on a web server.
+Description for images can be easily created by
+.B gthumb-2.7.8-3
+image viewer (let's try key
+.B c
+). After description modification don't forget to re-run
+.B xyz
+for
+.B index.html
+regeneration.
+.HP
+\fB\-a
+.IP
+automatically rotate original (!) images by EXIF information 
+.HP
+\fB\-x'Our snapshot collection'
+.IP
+heading for gallery - should be short
+.HP
+\fB\-m600
+.IP
+maximum size of square to fit image - for example 600 pixels, if not listed the default value is 800 pixels
+.HP
+\fB\-n'Your name'
+.IP
+will be used with (c) as footer
+.SH EXAMPLE
+$ xyz -a -x'Our nice image collection' -n'John Doe'
+.SH BUGS
+The magnifier should be fixed - I have been working on it.
+.br
+It now works for Firefox only.
+.SH TODO
+Implement AJAX to show statistics.
+.SH AUTHOR
+Josef Kubin <jkubin redhat com>
+
